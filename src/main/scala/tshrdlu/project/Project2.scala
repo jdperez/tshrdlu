@@ -78,14 +78,16 @@ object PolarityStatusStreamer extends BaseStreamer with PolarityStatusListener
  * statistics at default interval (every 100 tweets). Filtered by provided
  * query terms.
  */
-object PolarityTermStreamer 
+object PolarityTermStreamer extends FilteredStreamer with TermFilter with PolarityStatusListener  
 
 /**
  * Output polarity labels for every English tweet and output polarity
  * statistics at an interval of every ten tweets. Filtered by provided
  * query locations.
  */
-object PolarityLocationStreamer 
+object PolarityLocationStreamer extends FilteredStreamer with LocationFilter with PolarityStatusListener {
+     override val outputInterval = 10
+   }
 
 
 /**
@@ -125,18 +127,31 @@ trait PolarityStatusListener extends EnglishStatusListener {
 	println("----------------------------------------")
       }
     }
-    
   }
-
   /**
    * Given a text, return its polarity:
    *   0 for positive
    *   1 for negative
    *   2 for neutral
    */
-  val random = new scala.util.Random
+
+  val engObj = new English()
+  val posWords = engObj.getLexicon("positive-words.txt.gz").mkString("|")
+  .replaceAll("([^|a-zA-Z0-9])","[$1]")
+  val posStr = """(?i)\b(""" + posWords + """)\b"""
+  val negWords = engObj.getLexicon("negative-words.txt.gz").mkString("|")
+  .replaceAll("([^|a-zA-Z0-9])","[1]")
+  val negStr = """(?i)\b(""" + negWords + """)\b"""
   def getPolarity(text: String) = {
-    random.nextInt(3)
+    val tokens = SimpleTokenizer(text)
+    val numPos = tokens.count(_ matches posStr)
+    val numNeg = tokens.count(_ matches negStr)
+    if (numPos > numNeg)
+      0
+    else if (numNeg > numPos)
+      1
+    else
+      2
   }
 
 }
