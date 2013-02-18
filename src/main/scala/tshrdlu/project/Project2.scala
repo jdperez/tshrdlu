@@ -31,10 +31,18 @@ trait EnglishStatusListener extends StatusOnlyListener {
   /**
    * Test whether a given text is written in English.
    */
-  val TheRE = """(?i)\bthe\b""".r // Throw me away!
+  val eng = new English().vocabulary.mkString("|")
+  val reStr = """(?i)\b(""" + eng + """)\b"""
+  val EngRE = reStr.r 
   def isEnglish(text: String) = {
-    // Remove this and do better.
-    !TheRE.findFirstIn(text).isEmpty
+    val tokens = SimpleTokenizer(text)
+    var count = 0.0
+    for(i <- 0 until tokens.length) {
+      if (!EngRE.findFirstIn(tokens(i)).isEmpty)
+        count += 1
+    }
+    (count/tokens.length) > 0.5
+
   }
 
 }
