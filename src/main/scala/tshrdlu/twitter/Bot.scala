@@ -65,6 +65,9 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
   import collection.JavaConversions._
 
   val username = twitter.getScreenName
+  
+  // Recognize the follow command to follow students in ANLP
+  lazy val FollowANLPPeople = """(?i).*follow anlp people.*""".r
 
   // Recognize a follow command
   lazy val FollowRE = """(?i)(?<=follow)(\s+(me|@[a-z]+))+""".r
@@ -81,7 +84,7 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
       println("*************")
       println("New reply: " + status.getText)
       val text = "@" + status.getUser.getScreenName + " " + doActionGetReply(status)
-      println("Replying: " + text)
+      println("Repsonlying: " + text)
       val reply = new StatusUpdate(text).inReplyToStatusId(status.getId)
       twitter.updateStatus(reply)
     }
@@ -94,7 +97,23 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
   def doActionGetReply(status: Status) = {
     val text = status.getText.toLowerCase
     val followMatches = FollowRE.findAllIn(text)
-    if (!followMatches.isEmpty) {
+    val followANLP = FollowANLPPeople.findAllIn(text)
+    if(!followANLP.isEmpty) {
+      val anlpScreenName = "appliednlp"
+      val followerIds = twitter.getFollowersIDs(anlpScreenName,-1).getIDs
+      followerIds.toIndexedSeq.foreach(id => {
+        val user = twitter.showUser(id)
+        val screenName = user.getScreenName
+        println("Before: "+screenName)
+        if(screenName matches ".*_anlp") {
+          println(screenName)
+          twitter.createFriendship(screenName)
+        }
+      })
+      //val followSet = followerIds.toIndexedSeq.filter(id => twitter.showUser(id).getScreenName matches ".*_anlp").toSet
+      //followSet.foreach(twitter.createFriendship)
+      "OK. I FOLLOWED THE ANLP PEOPLE"
+    } else if (!followMatches.isEmpty) {
       val followSet = followMatches
 	.next
 	.drop(1)
