@@ -31,14 +31,11 @@ trait EnglishStatusListener extends StatusListenerAdaptor {
   /**
    * Test whether a given text is written in English.
    */
-  val eng = new English().vocabulary.mkString("|")
-  val reStr = """(?i)\b(""" + eng + """)\b"""
-  val EngRE = reStr.r 
   def isEnglish(text: String) = {
     val tokens = SimpleTokenizer(text)
     var count = 0.0
     for(i <- 0 until tokens.length) {
-      if (!EngRE.findFirstIn(tokens(i)).isEmpty)
+      if (English.isEnglish(tokens(i)))
         count += 1
     }
     (count/tokens.length) > 0.5
@@ -135,11 +132,10 @@ trait PolarityStatusListener extends EnglishStatusListener {
    *   2 for neutral
    */
 
-  val engObj = new English()
-  val posWords = engObj.getLexicon("positive-words.txt.gz").mkString("|")
+  val posWords = English.getLexicon("positive-words.txt.gz").mkString("|")
   .replaceAll("([^|a-zA-Z0-9])","[$1]")
   val posStr = """(?i)\b(""" + posWords + """)\b"""
-  val negWords = engObj.getLexicon("negative-words.txt.gz").mkString("|")
+  val negWords = English.getLexicon("negative-words.txt.gz").mkString("|")
   .replaceAll("([^|a-zA-Z0-9])","[1]")
   val negStr = """(?i)\b(""" + negWords + """)\b"""
   def getPolarity(text: String) = {
