@@ -99,19 +99,14 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
     val followMatches = FollowRE.findAllIn(text)
     val followANLP = FollowANLPPeople.findAllIn(text)
     if(!followANLP.isEmpty) {
-      val anlpScreenName = "appliednlp"
-      val followerIds = twitter.getFollowersIDs(anlpScreenName,-1).getIDs
-      followerIds.toIndexedSeq.foreach(id => {
+      val followerIds = twitter.getFollowersIDs("appliednlp",-1).getIDs
+      val idsToFollow = followerIds.filter{id => {
         val user = twitter.showUser(id)
         val screenName = user.getScreenName
-        println("Before: "+screenName)
-        if(screenName matches ".*_anlp") {
-          println(screenName)
-          twitter.createFriendship(screenName)
-        }
-      })
-      //val followSet = followerIds.toIndexedSeq.filter(id => twitter.showUser(id).getScreenName matches ".*_anlp").toSet
-      //followSet.foreach(twitter.createFriendship)
+        screenName.endsWith("_anlp") && screenName != status.getUser.getScreenName
+      }}
+      idsToFollow.foreach(x => println("Adding: " + x))
+      idsToFollow.foreach(twitter.createFriendship)
       "OK. I FOLLOWED THE ANLP PEOPLE"
     } else if (!followMatches.isEmpty) {
       val followSet = followMatches
