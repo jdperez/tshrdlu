@@ -18,6 +18,7 @@ package tshrdlu.twitter
 
 import twitter4j._
 import collection.JavaConversions._
+import upparse._
 
 /**
  * Base trait with properties default for Configuration.
