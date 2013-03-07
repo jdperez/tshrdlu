@@ -18,7 +18,7 @@ package tshrdlu.twitter
 
 import twitter4j._
 import collection.JavaConversions._
-import upparse._
+import upparse.cli.Main
 
 /**
  * Base trait with properties default for Configuration.
@@ -39,8 +39,31 @@ class ReactiveBot extends TwitterInstance with StreamInstance {
  * Companion object for ReactiveBot with main method.
  */
 object ReactiveBot {
+  
+  val upparseArgs:Array[String] = Array("chunk",
+                                          "-chunkerType", "HMM",
+                                          "-chunkingStrategy", "UNIFORM",
+                                          "-encoderType", "BIO",
+                                          "-emdelta", ".0001",
+                                          "-smooth", ".1",
+                                          "-train", "/v/filer4b/v20q001/spryor/tshrdlu/twitterTestDataset.txt",
+                                          //"-test", "/v/filer4b/v20q001/spryor/upparse/testing.mrg",
+                                          "-trainFileType", "SPL")//,
+                                          //"-testFileType", "WSJ")
+  val chunker = new Main(upparseArgs)
 
   def main(args: Array[String]) {
+    chunker.chunk()
+    val alpha = chunker.getSimpleChunker().alpha
+    val testSentence: Array[Int] = "__start__ i trust that __eos__"
+                       .split("\\s+")
+                       .map(w => alpha.getCode(w))
+    println(testSentence.length)
+    println("I am now going to tag the sequence")
+    val sm = chunker.getSequenceModel()
+    val temp: Array[Int] = Array(testSentence(2))
+    sm.tag(Array(3, 2))
+    //val tagged = chunker.getSequenceModel().tag(testSentence)
     val bot = new ReactiveBot
     bot.stream.user
     
