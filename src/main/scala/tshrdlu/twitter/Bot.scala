@@ -22,6 +22,10 @@ import upparse.cli.Main
 import upparse.corpus.{StopSegmentCorpus, BasicCorpus, CorpusUtil}
 import sys.process._
 import java.io._
+import jarvis.nlp.TrigramModel
+import jarvis.nlp.util._
+
+object SPLReader extends CorpusReader(".txt") with SPLParser
 
 /**
  * Base trait with properties default for Configuration.
@@ -42,52 +46,8 @@ class ReactiveBot extends TwitterInstance with StreamInstance {
  * Companion object for ReactiveBot with main method.
  */
 object ReactiveBot {
-  def printToFile(f: java.io.File)(op: java.io.PrintWriter => Unit) {
-    val p = new java.io.PrintWriter(f)
-    try { op(p) } finally { p.close() }
-  }
-  
-  def writeTextToFile(filename: String, text: String) = {
-    printToFile(new File(filename))(p => {
-      p.println(text)
-    })
-  }
-
-  private val tweetFile = "/u/spryor/tshrdlu/evalTweet.txt"
-  private val upparseArgs: Array[String] = Array("chunk",
-                                        "-chunkerType", "HMM",
-                                        "-chunkingStrategy", "UNIFORM",
-                                        "-encoderType", "BIO",
-                                        "-emdelta", ".0001",
-                                        "-smooth", ".1",
-                                        "-train", "/u/spryor/tshrdlu/twitterTestDataset.txt",
-                                        "-test", tweetFile,
-                                        "-trainFileType", "SPL",
-                                        "-testFileType", "SPL")
-  val upparser = new Main(upparseArgs)
-  val model = upparser.chunk_special()
-
-  def trainUpparse() = {
-    while(model.anotherIteration()) {
-      model.updateWithEM(upparser.outputManager.getStatusStream())
-    }
-  }
-
-  def chunkTweet(tweet: String) = {
-    writeTextToFile(tweetFile, tweet)
-    val newTweet = CorpusUtil.stopSegmentCorpus(upparser.evalManager.alpha,
-      Array(tweetFile),                                   
-      upparser.evalManager.testFileType,
-      upparser.evalManager.numSent,
-      upparser.evalManager.filterLength,
-      upparser.evalManager.noSeg,
-      upparser.evalManager.reverse)
-    val chunkerOutput = model.getCurrentChunker().getChunkedCorpus(newTweet)
-    chunkerOutput.clumps2str(chunkerOutput.getArrays()(0))
-  }
 
   def main(args: Array[String]) {
-    trainUpparse()
 
     val bot = new ReactiveBot
     bot.stream.user
@@ -112,9 +72,61 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
 
   import tshrdlu.util.SimpleTokenizer
   import collection.JavaConversions._
+  
+  def printToFile(f: java.io.File)(op: java.io.PrintWriter => Unit) {
+    val p = new java.io.PrintWriter(f)
+    try { op(p) } finally { p.close() }
+  }
+
+  def writeTextToFile(filename: String, text: String) = {
+    printToFile(new File(filename))(p => {
+      p.println(text)
+    })
+  }
+
+  private val tweetFile = "/u/spryor/tshrdlu/evalTweet.txt"
+  private val upparseArgs: Array[String] = Array("chunk",
+                                        "-chunkerType", "PRLG",
+                                        "-chunkingStrategy", "UNIFORM",
+                                        "-encoderType", "BIO",
+                                        "-emdelta", ".0001",
+                                        "-smooth", ".1",
+                                        "-train", "/u/spryor/tshrdlu/data/finalTweetData.txt",
+                                        "-test", tweetFile,
+                                        "-trainFileType", "SPL",
+                                        "-testFileType", "SPL")
+  val upparser = new Main(upparseArgs)
+  val model = {
+    val m = upparser.chunk_special()
+    while(m.anotherIteration()) {
+      m.updateWithEM(upparser.outputManager.getStatusStream())
+    }
+    m
+  }
+
+  def chunkTweet(tweet: String) = {
+    writeTextToFile(tweetFile, tweet)
+    val newTweet = CorpusUtil.stopSegmentCorpus(upparser.evalManager.alpha,
+      Array(tweetFile),
+      upparser.evalManager.testFileType,
+      upparser.evalManager.numSent,
+      upparser.evalManager.filterLength,
+      upparser.evalManager.noSeg,
+      upparser.evalManager.reverse)
+    val chunkerOutput = model.getCurrentChunker().getChunkedCorpus(newTweet)
+    chunkerOutput.clumps2str(chunkerOutput.getArrays()(0))
+  }
+
+  def extractChunks(chunkedTweet: String) = {
+    (Chunks findAllIn chunkedTweet).map(_.replaceAll("[^a-zA-Z\\s]+","")).toIndexedSeq
+  }
+
+  val LanguageModel = TrigramModel(PENNReader("/projects/nlp/penn-treebank2/combined/wsj/"))
 
   val username = twitter.getScreenName
   
+  lazy val Chunks = """[(]([^()]+)[)]""".r
+ 
   // Recognize the follow command to follow students in ANLP
   lazy val FollowANLPPeople = """(?i).*follow anlp people.*""".r
 
@@ -132,7 +144,7 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
     if (replyName == username) {
       println("*************")
       println("New reply: " + status.getText)
-      println("New reply (chunked): " + chunkTweet(status.getText))
+      //println("New reply (chunked): " + chunkTweet(status.getText))
       val text = "@" + status.getUser.getScreenName + " " + doActionGetReply(status)
       println("Repsonlying: " + text)
       val reply = new StatusUpdate(text).inReplyToStatusId(status.getId)
@@ -174,13 +186,24 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
       
       try {
 	val StripLeadMentionRE(withoutMention) = text
-	val statusList = 
-	  SimpleTokenizer(withoutMention)
-	    .filter(_.length > 3)
-	    .toSet
-	    .take(3)
-	    .toList
-	    .flatMap(w => twitter.search(new Query(w)).getTweets)
+        val chunks = extractChunks(chunkTweet(withoutMention))
+        println("USING CHUNKS: " + chunks.mkString(", "))
+        val selectedChunks = chunks
+                     .map(c => (c.length, c))
+                     .sorted
+                     .reverse
+                     .take(3)
+        val statusList = selectedChunks
+            .toList
+            .flatMap(w => twitter.search(new Query(w._2)).getTweets)
+        //val statusList = twitter.search(new Query(chunk)).getTweets.toList
+	//val statusList = 
+	//  SimpleTokenizer(withoutMention)
+	//    .filter(_.length > 3)
+	//    .toSet
+	//    .take(3)
+	//    .toList
+	//    .flatMap(w => twitter.search(new Query(w)).getTweets)
 	extractText(statusList)
       }	catch { 
 	case _: Throwable => "NO."
@@ -203,7 +226,10 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
       }
       .filterNot(_.contains('@'))
       .filter(tshrdlu.util.English.isEnglish)
-
+      .map(t => (LanguageModel(SimpleTokenizer(t)), t))
+      .sorted
+      .reverse
+      .map{ case (k,t) => t}
     if (useableTweets.isEmpty) "NO." else useableTweets.head
   }
 
