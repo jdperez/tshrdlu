@@ -19,6 +19,9 @@ package tshrdlu.twitter
 import twitter4j._
 import collection.JavaConversions._
 import upparse.cli.Main
+import upparse.corpus.StopSegmentCorpus
+import sys.process._
+import java.io._
 
 /**
  * Base trait with properties default for Configuration.
@@ -39,31 +42,72 @@ class ReactiveBot extends TwitterInstance with StreamInstance {
  * Companion object for ReactiveBot with main method.
  */
 object ReactiveBot {
+  def printToFile(f: java.io.File)(op: java.io.PrintWriter => Unit) {
+    val p = new java.io.PrintWriter(f)
+    try { op(p) } finally { p.close() }
+  }
   
-  val upparseArgs:Array[String] = Array("chunk",
-                                          "-chunkerType", "HMM",
-                                          "-chunkingStrategy", "UNIFORM",
-                                          "-encoderType", "BIO",
-                                          "-emdelta", ".0001",
-                                          "-smooth", ".1",
-                                          "-train", "/v/filer4b/v20q001/spryor/tshrdlu/twitterTestDataset.txt",
-                                          //"-test", "/v/filer4b/v20q001/spryor/upparse/testing.mrg",
-                                          "-trainFileType", "SPL")//,
-                                          //"-testFileType", "WSJ")
-  val chunker = new Main(upparseArgs)
+  def writeTextToFile(filename: String, text: String) = {
+    printToFile(new File(filename))(p => {
+      p.println(text)
+    })
+    //text #> new java.io.File(filename) !
+  }
+
+  private val tweetFile = "/u/spryor/tshrdlu/evalTweet.txt"
+  private val upparseArgs: Array[String] = Array("chunk",
+                                        "-chunkerType", "HMM",
+                                        "-chunkingStrategy", "UNIFORM",
+                                        "-encoderType", "BIO",
+                                        "-emdelta", ".0001",
+                                        "-smooth", ".1",
+                                        "-train", "/u/spryor/tshrdlu/twitterTestDataset.txt",
+                                        "-test", "/u/spryor/tshrdlu/evalTweet.txt",
+                                        "-trainFileType", "SPL",
+                                        "-testFileType", "SPL")
+  val upparser = new Main(upparseArgs)
 
   def main(args: Array[String]) {
-    chunker.chunk()
-    val alpha = chunker.getSimpleChunker().alpha
-    val testSentence: Array[Int] = "__start__ i trust that __eos__"
-                       .split("\\s+")
-                       .map(w => alpha.getCode(w))
-    println(testSentence.length)
-    println("I am now going to tag the sequence")
-    val sm = chunker.getSequenceModel()
-    val temp: Array[Int] = Array(testSentence(2))
-    sm.tag(Array(3, 2))
-    //val tagged = chunker.getSequenceModel().tag(testSentence)
+    val model = upparser.chunk_special()
+    //train the upparse model
+    while(model.anotherIteration()) {
+      model.updateWithEM(upparser.outputManager.getStatusStream())
+    }
+    //val currentChunker = model.getCurrentChunker()
+    
+    val tweets: List[String] = List("<mention> can you make your peaceful map available to download for xbox??",
+                                    "gambling hall present-day las vegas nv: .wbx 780262",
+                                    "<mention> she's the best asjhglfk",
+                                    "<hashtag> : dj dredski - end of 2012 reggae culture mix <link>")
+    
+    tweets.foreach(tweet => {
+      writeTextToFile(tweetFile, tweet)
+      println("Testing tweet: " + tweet)
+      upparser.evalManager.setTestCorpusString(Array(tweetFile))
+      val currentChunker = model.getCurrentChunker()
+      var chunkerOutput = currentChunker.getChunkedCorpus(upparser.evalManager.getEvalStopSegmentCorpus())
+      chunkerOutput.getArrays().foreach(a => {
+         println(chunkerOutput.clumps2str(a))
+      })
+    })
+
+    //val newUpparser = new Main(upparseArgs ++ 
+    //                  Array("-train", "/u/spryor/tshrdlu/evalTweet.txt",
+    //                        "-output", "testout"))
+   
+    //newUpparser.evalChunker("", model.getCurrentChunker())
+    //newUpparser.writeOutput()
+    //val chunkerOutput = model.getCurrentChunker().getChunkedCorpus(evalManager
+    //    .getEvalStopSegmentCorpus()) 
+    //val testSentence: Array[Int] = "__start__ what i trust that __eos__"
+    //                   .split("\\s+")
+    //                  .map(w => alpha.getCode(w))
+
+    //println("I am now going to tag the sequence")
+    //val temp: Array[Int] = Array(testSentence(2))
+    //println(testSentence.mkString(" "))
+    //sequenceModelChunker.model.tag(Array(3, 2))
+    //val tagged = model.getCurrentChunker().model.tag(testSentence)
     val bot = new ReactiveBot
     bot.stream.user
     
