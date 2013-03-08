@@ -19,7 +19,7 @@ package tshrdlu.twitter
 import twitter4j._
 import collection.JavaConversions._
 import upparse.cli.Main
-import upparse.corpus.StopSegmentCorpus
+import upparse.corpus.{StopSegmentCorpus, BasicCorpus, CorpusUtil}
 import sys.process._
 import java.io._
 
@@ -51,7 +51,6 @@ object ReactiveBot {
     printToFile(new File(filename))(p => {
       p.println(text)
     })
-    //text #> new java.io.File(filename) !
   }
 
   private val tweetFile = "/u/spryor/tshrdlu/evalTweet.txt"
@@ -62,52 +61,34 @@ object ReactiveBot {
                                         "-emdelta", ".0001",
                                         "-smooth", ".1",
                                         "-train", "/u/spryor/tshrdlu/twitterTestDataset.txt",
-                                        "-test", "/u/spryor/tshrdlu/evalTweet.txt",
+                                        "-test", tweetFile,
                                         "-trainFileType", "SPL",
                                         "-testFileType", "SPL")
   val upparser = new Main(upparseArgs)
+  val model = upparser.chunk_special()
 
-  def main(args: Array[String]) {
-    val model = upparser.chunk_special()
-    //train the upparse model
+  def trainUpparse() = {
     while(model.anotherIteration()) {
       model.updateWithEM(upparser.outputManager.getStatusStream())
     }
-    //val currentChunker = model.getCurrentChunker()
-    
-    val tweets: List[String] = List("<mention> can you make your peaceful map available to download for xbox??",
-                                    "gambling hall present-day las vegas nv: .wbx 780262",
-                                    "<mention> she's the best asjhglfk",
-                                    "<hashtag> : dj dredski - end of 2012 reggae culture mix <link>")
-    
-    tweets.foreach(tweet => {
-      writeTextToFile(tweetFile, tweet)
-      println("Testing tweet: " + tweet)
-      upparser.evalManager.setTestCorpusString(Array(tweetFile))
-      val currentChunker = model.getCurrentChunker()
-      var chunkerOutput = currentChunker.getChunkedCorpus(upparser.evalManager.getEvalStopSegmentCorpus())
-      chunkerOutput.getArrays().foreach(a => {
-         println(chunkerOutput.clumps2str(a))
-      })
-    })
+  }
 
-    //val newUpparser = new Main(upparseArgs ++ 
-    //                  Array("-train", "/u/spryor/tshrdlu/evalTweet.txt",
-    //                        "-output", "testout"))
-   
-    //newUpparser.evalChunker("", model.getCurrentChunker())
-    //newUpparser.writeOutput()
-    //val chunkerOutput = model.getCurrentChunker().getChunkedCorpus(evalManager
-    //    .getEvalStopSegmentCorpus()) 
-    //val testSentence: Array[Int] = "__start__ what i trust that __eos__"
-    //                   .split("\\s+")
-    //                  .map(w => alpha.getCode(w))
+  def chunkTweet(tweet: String) = {
+    writeTextToFile(tweetFile, tweet)
+    val newTweet = CorpusUtil.stopSegmentCorpus(upparser.evalManager.alpha,
+      Array(tweetFile),                                   
+      upparser.evalManager.testFileType,
+      upparser.evalManager.numSent,
+      upparser.evalManager.filterLength,
+      upparser.evalManager.noSeg,
+      upparser.evalManager.reverse)
+    val chunkerOutput = model.getCurrentChunker().getChunkedCorpus(newTweet)
+    chunkerOutput.clumps2str(chunkerOutput.getArrays()(0))
+  }
 
-    //println("I am now going to tag the sequence")
-    //val temp: Array[Int] = Array(testSentence(2))
-    //println(testSentence.mkString(" "))
-    //sequenceModelChunker.model.tag(Array(3, 2))
-    //val tagged = model.getCurrentChunker().model.tag(testSentence)
+  def main(args: Array[String]) {
+    trainUpparse()
+
     val bot = new ReactiveBot
     bot.stream.user
     
@@ -151,6 +132,7 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
     if (replyName == username) {
       println("*************")
       println("New reply: " + status.getText)
+      println("New reply (chunked): " + chunkTweet(status.getText))
       val text = "@" + status.getUser.getScreenName + " " + doActionGetReply(status)
       println("Repsonlying: " + text)
       val reply = new StatusUpdate(text).inReplyToStatusId(status.getId)
