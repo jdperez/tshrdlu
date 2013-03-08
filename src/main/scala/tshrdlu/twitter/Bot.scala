@@ -26,6 +26,8 @@ import java.io._
 import jarvis.nlp.TrigramModel
 import jarvis.nlp.util._
 
+//Create and object to read and parse files with a single
+//sentence per file
 object SPLReader extends CorpusReader(".txt") with SPLParser
 
 /**
@@ -74,18 +76,22 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
   import tshrdlu.util.SimpleTokenizer
   import collection.JavaConversions._
   
+  //A function to create and write to files
   def printToFile(f: java.io.File)(op: java.io.PrintWriter => Unit) {
     val p = new java.io.PrintWriter(f)
     try { op(p) } finally { p.close() }
   }
 
+  //A simple function for writing strings to a file
   def writeTextToFile(filename: String, text: String) = {
     printToFile(new File(filename))(p => {
       p.println(text)
     })
   }
 
+  //the location of the file to write new teets for chunking
   private val tweetFile = "/u/spryor/tshrdlu/evalTweet.txt"
+  //the arguments for creatin the upparse object
   private val upparseArgs: Array[String] = Array("chunk",
                                         "-chunkerType", "PRLG",
                                         "-chunkingStrategy", "UNIFORM",
@@ -96,7 +102,9 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
                                         "-test", tweetFile,
                                         "-trainFileType", "SPL",
                                         "-testFileType", "SPL")
+  //create a upparse object
   val upparser = new Main(upparseArgs)
+  //create and train the upparse model 
   val model = {
     val m = upparser.chunk_special()
     while(m.anotherIteration()) {
@@ -105,6 +113,10 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
     m
   }
 
+  /**
+   * chunkTweet takes a new tweet and runs upparse on it to 
+   * chunk the raw tweet.
+   */
   def chunkTweet(tweet: String) = {
     writeTextToFile(tweetFile, tweet)
     val newTweet = CorpusUtil.stopSegmentCorpus(upparser.evalManager.alpha,
@@ -117,11 +129,16 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
     val chunkerOutput = model.getCurrentChunker().getChunkedCorpus(newTweet)
     chunkerOutput.clumps2str(chunkerOutput.getArrays()(0))
   }
-
+  
+  /**
+   * extractChunks returns an indexed sequence of strings where 
+   * each string is chunked sequence of words found by upparse.
+   */
   def extractChunks(chunkedTweet: String) = {
     (Chunks findAllIn chunkedTweet).map(_.replaceAll("[^a-zA-Z\\s]+","")).toIndexedSeq
   }
-
+  
+  //A Trigram language model based on a dataset of mostly english tweets
   val LanguageModel = TrigramModel(SPLReader("/u/spryor/tshrdlu/data/"))
 
   val username = twitter.getScreenName
@@ -145,8 +162,11 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
     if (replyName == username) {
       println("*************")
       println("New reply: " + status.getText)
-      //println("New reply (chunked): " + chunkTweet(status.getText))
-      val text = "@" + status.getUser.getScreenName + " " + doActionGetReply(status)
+      val actionReply = doActionGetReply(status)
+      val useActionReply = 
+          if(actionReply == status.getText.replaceAll("""^@[a-zA-Z_0-9]+\s""", "")) "Tell me more"
+          else actionReply
+      val text = "@" + status.getUser.getScreenName + " " + useActionReply 
       println("Repsonlying: " + text)
       val reply = new StatusUpdate(text).inReplyToStatusId(status.getId)
       twitter.updateStatus(reply)
@@ -161,6 +181,7 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
     val text = status.getText.toLowerCase
     val followMatches = FollowRE.findAllIn(text)
     val followANLP = FollowANLPPeople.findAllIn(text)
+    //if asked, follow everyone in the ANLP class
     if(!followANLP.isEmpty) {
       val followerIds = twitter.getFollowersIDs("appliednlp",-1).getIDs
       val idsToFollow = followerIds.filter{id => {
@@ -188,6 +209,8 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
       try {
 	val StripLeadMentionRE(withoutMention) = text
         val chunks = extractChunks(chunkTweet(withoutMention))
+        //select the top 2 chunks to search for based on the least
+        //likely chunks (as scored by the tweet language model)
         val selectedChunks = chunks
                      .map(c => (LanguageModel(SimpleTokenizer(c)), c))
                      .sorted
@@ -224,7 +247,9 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
       .sorted
       .reverse
       .map{ case (k,t) => t}
-    if (useableTweets.isEmpty) "NO." else useableTweets.head
+    //given the set of potential tweets, return the tweet that has
+    //the highest probability according to the language model
+    if (useableTweets.isEmpty) "I DON'T KNOW WHAT TO SAY." else useableTweets.head
   }
 
 }
