@@ -18,6 +18,7 @@ package tshrdlu.twitter
 
 import twitter4j._
 import collection.JavaConversions._
+import tshrdlu.util.English
 import upparse.cli.Main
 import upparse.corpus.{StopSegmentCorpus, BasicCorpus, CorpusUtil}
 import sys.process._
@@ -86,12 +87,12 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
 
   private val tweetFile = "/u/spryor/tshrdlu/evalTweet.txt"
   private val upparseArgs: Array[String] = Array("chunk",
-                                        "-chunkerType", "PRLG",
+                                        "-chunkerType", "HMM",
                                         "-chunkingStrategy", "UNIFORM",
                                         "-encoderType", "BIO",
                                         "-emdelta", ".0001",
                                         "-smooth", ".1",
-                                        "-train", "/u/spryor/tshrdlu/data/finalTweetData.txt",
+                                        "-train", "/u/spryor/tshrdlu/twitterTestDataset.txt",
                                         "-test", tweetFile,
                                         "-trainFileType", "SPL",
                                         "-testFileType", "SPL")
@@ -121,7 +122,7 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
     (Chunks findAllIn chunkedTweet).map(_.replaceAll("[^a-zA-Z\\s]+","")).toIndexedSeq
   }
 
-  val LanguageModel = TrigramModel(PENNReader("/projects/nlp/penn-treebank2/combined/wsj/"))
+  val LanguageModel = TrigramModel(SPLReader("/u/spryor/tshrdlu/data/"))
 
   val username = twitter.getScreenName
   
@@ -186,16 +187,23 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
       
       try {
 	val StripLeadMentionRE(withoutMention) = text
-        val chunks = extractChunks(chunkTweet(withoutMention))
-        println("USING CHUNKS: " + chunks.mkString(", "))
-        val selectedChunks = chunks
-                     .map(c => (c.length, c))
-                     .sorted
-                     .reverse
-                     .take(3)
-        val statusList = selectedChunks
-            .toList
-            .flatMap(w => twitter.search(new Query(w._2)).getTweets)
+        //val chunks = extractChunks(chunkTweet(withoutMention))
+        //println("USING CHUNKS: " + chunks.mkString(", "))
+        //val selectedChunks = chunks
+        //             .map(c => (LanguageModel(SimpleTokenizer(c)), c))
+        //             .sorted
+        //             .take(1)
+        val statusList = 
+          SimpleTokenizer(withoutMention)
+            .filter(w => !English.stopwords.contains(w))
+            .map(c => (LanguageModel(IndexedSeq(c)), c))
+            .sorted
+            .take(2)
+            .map(_._2)
+        println("USING: " + statusList.mkString(", "))
+        //val statusList = selectedChunks
+        //    .toList
+        //    .flatMap(w => twitter.search(new Query(w._2)).getTweets)
         //val statusList = twitter.search(new Query(chunk)).getTweets.toList
 	//val statusList = 
 	//  SimpleTokenizer(withoutMention)
@@ -204,7 +212,7 @@ extends StatusListenerAdaptor with UserStreamListenerAdaptor {
 	//    .take(3)
 	//    .toList
 	//    .flatMap(w => twitter.search(new Query(w)).getTweets)
-	extractText(statusList)
+	extractText(statusList.toList.flatMap(w => twitter.search(new Query(w)).getTweets))
       }	catch { 
 	case _: Throwable => "NO."
       }
